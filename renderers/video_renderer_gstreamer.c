@@ -23,6 +23,7 @@
 #include "video_renderer.h"
 #include <gst/gst.h>
 #include <gst/app/gstappsrc.h>
+#include <gst/video/video.h>
 
 #define SECOND_IN_NSECS 1000000000UL
 #ifdef X_DISPLAY_FIX
@@ -31,7 +32,7 @@
 static bool fullscreen = false;
 static bool alt_keypress = false;
 #define MAX_X11_SEARCH_ATTEMPTS 5   /*should be less than 256 */
-static unsigned char X11_search_attempts; 
+static unsigned char X11_search_attempts;
 #endif
 
 static video_renderer_t *renderer = NULL;
@@ -45,7 +46,7 @@ struct video_renderer_s {
     GstElement *appsrc, *pipeline, *sink;
     GstBus *bus;
 #ifdef  X_DISPLAY_FIX
-    const char * server_name;  
+    const char * server_name;
     X11_Window_t * gst_window;
 #endif
 };
@@ -71,7 +72,7 @@ static void append_videoflip (GString *launch, const videoflip_t *flip, const vi
         case LEFT:
             g_string_append(launch, "videoflip video-direction=GST_VIDEO_ORIENTATION_UL_LR ! ");
             break;
-        case RIGHT: 
+        case RIGHT:
             g_string_append(launch, "videoflip video-direction=GST_VIDEO_ORIENTATION_UR_LL ! ");
             break;
         default:
@@ -84,7 +85,7 @@ static void append_videoflip (GString *launch, const videoflip_t *flip, const vi
         case LEFT:
             g_string_append(launch, "videoflip video-direction=GST_VIDEO_ORIENTATION_UR_LL ! ");
             break;
-        case RIGHT: 
+        case RIGHT:
             g_string_append(launch, "videoflip video-direction=GST_VIDEO_ORIENTATION_UL_LR ! ");
             break;
         default:
@@ -97,7 +98,7 @@ static void append_videoflip (GString *launch, const videoflip_t *flip, const vi
         case LEFT:
             g_string_append(launch, "videoflip video-direction=GST_VIDEO_ORIENTATION_90L ! ");
             break;
-        case RIGHT: 
+        case RIGHT:
             g_string_append(launch, "videoflip video-direction=GST_VIDEO_ORIENTATION_90R ! ");
             break;
         default:
@@ -105,17 +106,23 @@ static void append_videoflip (GString *launch, const videoflip_t *flip, const vi
         }
         break;
     }
-}	
+}
 
 /* apple uses colorimetry=1:3:5:1                                *
  * (not recognized by v4l2 plugin in Gstreamer  < 1.20.4)        *
  * See .../gst-libs/gst/video/video-color.h in gst-plugins-base  *
- * range = 1   -> GST_VIDEO_COLOR_RANGE_0_255      ("full RGB")  * 
+ * range = 1   -> GST_VIDEO_COLOR_RANGE_0_255      ("full RGB")  *
  * matrix = 3  -> GST_VIDEO_COLOR_MATRIX_BT709                   *
  * transfer = 5 -> GST_VIDEO_TRANSFER_BT709                      *
  * primaries = 1 -> GST_VIDEO_COLOR_PRIMARIES_BT709              *
  * closest used by  GStreamer < 1.20.4 is BT709, 2:3:5:1 with    *                            *
- * range = 2 -> GST_VIDEO_COLOR_RANGE_16_235 ("limited RGB")     */  
+ * range = 2 -> GST_VIDEO_COLOR_RANGE_16_235 ("limited RGB")     */
+const GstVideoColorimetry colorimetry = {
+    GST_VIDEO_COLOR_RANGE_0_255,
+    GST_VIDEO_COLOR_MATRIX_RGB,
+    GST_VIDEO_TRANSFER_SRGB,
+    GST_VIDEO_COLOR_PRIMARIES_BT709
+};
 
 static const char h264_caps[]="video/x-h264,stream-format=(string)byte-stream,alignment=(string)au";
 
@@ -155,7 +162,10 @@ void  video_renderer_init(logger_t *render_logger, const char *server_name, vide
     g_string_append(launch, " ! ");
     append_videoflip(launch, &videoflip[0], &videoflip[1]);
     g_string_append(launch, converter);
-    g_string_append(launch, " ! ");
+    char* colorimetry_string = gst_video_colorimetry_to_string(&colorimetry);
+    g_string_append(launch, " ! video/x-raw,colorimetry=");
+    g_string_append(launch, colorimetry_string);
+    g_string_append(launch, ",format=RGB ! videoconvert ! ");
     g_string_append(launch, "videoscale ! ");
     g_string_append(launch, videosink);
     g_string_append(launch, " name=video_sink");
@@ -309,7 +319,7 @@ void video_renderer_stop() {
   if (renderer) {
             gst_app_src_end_of_stream (GST_APP_SRC(renderer->appsrc));
 	    gst_element_set_state (renderer->pipeline, GST_STATE_NULL);
-  }   
+  }
 }
 
 void video_renderer_destroy() {
@@ -329,7 +339,7 @@ void video_renderer_destroy() {
             free(renderer->gst_window);
             renderer->gst_window = NULL;
         }
-#endif    
+#endif
         free (renderer);
         renderer = NULL;
     }
@@ -417,5 +427,5 @@ gboolean gstreamer_pipeline_bus_callback(GstBus *bus, GstMessage *message, gpoin
 
 unsigned int video_renderer_listen(void *loop) {
     return (unsigned int) gst_bus_add_watch(renderer->bus, (GstBusFunc)
-                                            gstreamer_pipeline_bus_callback, (gpointer) loop);    
-}  
+                                            gstreamer_pipeline_bus_callback, (gpointer) loop);
+}
