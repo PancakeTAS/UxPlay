@@ -22,6 +22,7 @@
 
 #include <gst/gst.h>
 #include <gst/app/gstappsrc.h>
+#include <gst/video/video.h>
 #include "video_renderer.h"
 
 #define SECOND_IN_NSECS 1000000000UL
@@ -137,6 +138,13 @@ static void append_videoflip (GString *launch, const videoflip_t *flip, const vi
  * primaries = 1 -> GST_VIDEO_COLOR_PRIMARIES_BT709              *
  * closest used by  GStreamer < 1.20.4 is BT709, 2:3:5:1 with    *                            *
  * range = 2 -> GST_VIDEO_COLOR_RANGE_16_235 ("limited RGB")     */  
+
+static const GstVideoColorimetry colorimetry = {
+    GST_VIDEO_COLOR_RANGE_0_255,
+    GST_VIDEO_COLOR_MATRIX_RGB,
+    GST_VIDEO_TRANSFER_SRGB,
+    GST_VIDEO_COLOR_PRIMARIES_BT709
+};
 
 static const char h264_caps[]="video/x-h264,stream-format=(string)byte-stream,alignment=(string)au";
 static const char h265_caps[]="video/x-h265,stream-format=(string)byte-stream,alignment=(string)au";
@@ -269,7 +277,10 @@ void  video_renderer_init(logger_t *render_logger, const char *server_name, vide
             g_string_append(launch, " ! ");
             append_videoflip(launch, &videoflip[0], &videoflip[1]);
             g_string_append(launch, converter);
-            g_string_append(launch, " ! ");
+            char* colorimetry_string = gst_video_colorimetry_to_string(&colorimetry);
+            g_string_append(launch, " ! video/x-raw,colorimetry=");
+            g_string_append(launch, colorimetry_string);
+            g_string_append(launch, ",format=RGB ! videoconvert ! ");
             g_string_append(launch, "videoscale ! ");
             g_string_append(launch, videosink);
             g_string_append(launch, " name=");
